@@ -1,0 +1,34 @@
+{
+  "placeholderImages": [
+    {
+      "id": "user1",
+      "description": "Avatar for user 1",
+      "imageUrl": "https://images.unsplash.com/photo-1540569014015-19a7be504e3a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwyfHxwZXJzb24lMjBwb3J0cmFpdHxlbnwwfHx8fDE3NjgxMTI1NjR8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person portrait"
+    },
+    {
+      "id": "user2",
+      "description": "Avatar for user 2",
+      "imageUrl": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxwZXJzb24lMjBwb3J0cmFpdHxlbnwwfHx8fDE3NjgxMTI1NjR8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person portrait"
+    },
+    {
+      "id": "user3",
+      "description": "Avatar for user 3",
+      "imageUrl": "https://images.unsplash.com/photo-1548544149-4835e62ee5b3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw2fHxwZXJzb24lMjBmYWNlfGVufDB8fHx8MTc2ODEyNzUyNXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person face"
+    },
+    {
+      "id": "user-you",
+      "description": "Avatar for the logged-in user",
+      "imageUrl": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxwZXJzb258ZW58MHx8fHwxNzY4MTUzODQwfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "person"
+    },
+    {
+      "id": "logo",
+      "description": "BubbleLink Connect logo",
+      "imageUrl": "https://images.unsplash.com/photo-1607357221935-9133bb4b44ca?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxidWJibGUlMjBjaGF0fGVufDB8fHx8MTc2ODE2NzE5MHww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "bubble chat"
+    }
+  ]
+}
