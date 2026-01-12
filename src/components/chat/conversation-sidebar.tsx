@@ -162,7 +162,10 @@ export function ConversationSidebar({
 
       // 1. Skip if user sent it or if currently viewing this conversation
       if (data.senderId === user.id) return;
-      if (currentConversationId && data.conversationId === currentConversationId) return;
+
+      // 1-on-1 Normalization: If conversationId is ME, target is the sender.
+      const effectiveConvId = data.conversationId === user.id ? data.senderId : data.conversationId;
+      if (currentConversationId && effectiveConvId === currentConversationId) return;
 
       // 2. Find sender details
       let senderName = data.senderName || 'Someone';
@@ -206,7 +209,9 @@ export function ConversationSidebar({
 
       // Play sound if not muted
       if (typeof window !== 'undefined' && !mutedUsers[data.senderId]) {
-        const audio = new Audio('/assets/notification_sound/whatsapp-sms-tone.mp3');
+        // Using an existing sound since the dedicated one is missing
+        const audio = new Audio('/assets/calling_tone/video-tone.ogg');
+        audio.volume = 0.5;
         audio.play().catch(e => console.error("Sound play blocked", e));
       }
     };

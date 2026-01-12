@@ -26,15 +26,18 @@ import { uploadChatMedia } from '@/lib/actions';
 import { ForwardModal } from './forward-modal';
 
 interface MessageAreaProps {
-  conversation: Conversation | undefined;
+  conversation: Conversation;
   currentUser: User;
   onBack?: () => void;
-  onMenuClick?: () => void;
 }
 
-export function MessageArea({ conversation: initialConversation, currentUser, onBack, onMenuClick }: MessageAreaProps) {
+export function MessageArea({
+  conversation: initialConversation,
+  currentUser,
+  onBack,
+}: MessageAreaProps) {
   const { toast } = useToast();
-  const { conversations, setConversations, socket: contextSocket } = useChat();
+  const { conversations, setConversations, socket, setSidebarOpen } = useChat();
   const [text, setText] = useState('');
 
   // Find the live version of this conversation from our context
@@ -56,7 +59,7 @@ export function MessageArea({ conversation: initialConversation, currentUser, on
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const conversationRef = useRef(conversation);
-  const socket = contextSocket; // Use socket from context
+  // useChat provides the global socket
 
   useEffect(() => {
     conversationRef.current = conversation;
@@ -685,8 +688,8 @@ export function MessageArea({ conversation: initialConversation, currentUser, on
       <FloatingBubbles />
       {/* Header */}
       <div className="p-3 md:p-4 border-b flex items-center gap-3 bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl sticky top-0 z-40 w-full transition-all">
-        {onMenuClick && !onBack && (
-          <Button variant="ghost" size="icon" onClick={onMenuClick} className="md:hidden flex h-9 w-9 rounded-full bg-primary/5 text-primary hover:bg-primary/10">
+        {!onBack && (
+          <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} className="md:hidden flex h-9 w-9 rounded-full bg-primary/5 text-primary hover:bg-primary/10">
             <Menu className="h-5 w-5" />
           </Button>
         )}

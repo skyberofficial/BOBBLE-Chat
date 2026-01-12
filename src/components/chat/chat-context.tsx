@@ -8,6 +8,8 @@ interface ChatContextType {
     conversations: Conversation[];
     setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>;
     socket: any;
+    isSidebarOpen: boolean;
+    setSidebarOpen: (open: boolean) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -23,6 +25,7 @@ export function ChatProvider({
 }) {
     const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
     const [socket, setSocket] = useState<any>(null);
+    const [isSidebarOpen, setSidebarOpen] = useState(false);
     const pathname = usePathname();
 
     useEffect(() => {
@@ -31,7 +34,19 @@ export function ChatProvider({
 
     // Global Socket for Realtime Sync
     useEffect(() => {
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+        let socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+
+        if (!socketUrl && typeof window !== 'undefined') {
+            // Smart fallback: If we're on a real domain, use that domain (Nginx will proxy /socket.io/)
+            // If we're on localhost, default to 3001 (standard dev server port)
+            socketUrl = window.location.hostname === 'localhost'
+                ? 'http://localhost:3001'
+                : window.location.origin;
+        }
+
+        // Final fallback if everything else fails
+        socketUrl = socketUrl || 'http://localhost:3001';
+
         console.log('--- Socket Context: Initializing connection to:', socketUrl);
 
         const sock = require('socket.io-client').io(socketUrl, {
@@ -48,7 +63,12 @@ export function ChatProvider({
 
         sock.on('receive_message', (data: any) => {
             setConversations(prev => {
-                const convIndex = prev.findIndex(c => c.id === data.conversationId);
+                // 1-on-1 Normalization: If the conversationId is ME, 
+                // it means the sender is identifying the chat by my ID.
+                // I identify the chat by THEIR ID.
+                const effectiveConvId = data.conversationId === user.id ? data.senderId : data.conversationId;
+
+                const convIndex = prev.findIndex(c => c.id === effectiveConvId);
 
                 // If conversation doesn't exist, we should ideally fetch it or handle it.
                 // For now, if it's not in the list, we just return prev.
@@ -65,7 +85,7 @@ export function ChatProvider({
                 };
 
                 const currentPath = window.location.pathname;
-                const isActive = currentPath.includes(data.conversationId);
+                const isActive = currentPath.includes(effectiveConvId);
 
                 if (isActive && data.senderId !== user.id) {
                     newMessage.status = 'read';
@@ -152,8 +172,19 @@ export function ChatProvider({
         }
     }, [pathname, socket, conversations.length]);
 
+    // Reset sidebar on mobile when navigating
+    useEffect(() => {
+        setSidebarOpen(false);
+    }, [pathname]);
+
     return (
-        <ChatContext.Provider value={{ conversations, setConversations, socket }}>
+        <ChatContext.Provider value={{
+            conversations,
+            setConversations,
+            socket,
+            isSidebarOpen,
+            setSidebarOpen
+        }}>
             {children}
         </ChatContext.Provider>
     );
