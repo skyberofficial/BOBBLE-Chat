@@ -309,11 +309,14 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
   useEffect(() => {
     if (!socket.current) {
       const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-      socket.current = io(socketUrl);
+      console.log('--- Socket (Signaling): Connecting to:', socketUrl);
+      socket.current = io(socketUrl, {
+        transports: ['polling', 'websocket']
+      });
     }
 
     const onConnect = () => {
-      console.log('Connected to socket server');
+      console.log('--- Socket (Signaling): Connected! ID:', socket.current?.id);
       socket.current?.emit('register', currentUser.id);
     };
 

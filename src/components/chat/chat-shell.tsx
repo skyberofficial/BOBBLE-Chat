@@ -36,11 +36,22 @@ export function ChatShell({ user, conversations: initialConversations, children 
     // Global Socket for Realtime Sync
     useEffect(() => {
         const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-        const sock = require('socket.io-client').io(socketUrl);
+        console.log('--- Socket: Initializing connection to:', socketUrl);
+
+        const sock = require('socket.io-client').io(socketUrl, {
+            transports: ['polling', 'websocket'],
+            reconnectionAttempts: 5,
+            timeout: 10000
+        });
         setSocket(sock);
 
         sock.on('connect', () => {
+            console.log('--- Socket: Connected successfully! ID:', sock.id);
             if (user?.id) sock.emit('register', user.id);
+        });
+
+        sock.on('connect_error', (err: any) => {
+            console.error('--- Socket: Connection error:', err.message);
         });
 
         sock.on('receive_message', (data: any) => {
