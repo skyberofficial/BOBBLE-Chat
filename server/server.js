@@ -2,7 +2,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 app.use(cors());
@@ -15,7 +16,6 @@ const io = new Server(server, {
         methods: ["GET", "POST"]
     }
 });
-
 const userSockets = new Map(); // userId -> socketId
 
 io.on('connection', (socket) => {
@@ -75,6 +75,14 @@ io.on('connection', (socket) => {
         const receiverSocketId = userSockets.get(receiverId);
         if (receiverSocketId) {
             io.to(receiverSocketId).emit('message_deleted', { messageId });
+        }
+    });
+
+    socket.on('delete_conversation', (data) => {
+        const { senderId, receiverId } = data;
+        const receiverSocketId = userSockets.get(receiverId);
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit('conversation_deleted', { senderId });
         }
     });
 

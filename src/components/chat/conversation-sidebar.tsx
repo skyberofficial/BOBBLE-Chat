@@ -8,7 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { LogOut, Search, Trash2, Bell, BellOff, MoreVertical, X, UserPlus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { User, Conversation } from '@/lib/types';
-import { io } from 'socket.io-client';
+import { useChat } from './chat-context';
 
 interface Notification {
   type: 'user_joined' | 'message';
@@ -87,7 +87,7 @@ export function ConversationSidebar({
   const [mutedUsers, setMutedUsers] = useState<Record<string, number>>({});
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const socketRef = React.useRef<any>(null);
+  const { socket, setConversations } = useChat();
 
   React.useEffect(() => {
     // Load notifications from local storage
@@ -154,33 +154,20 @@ export function ConversationSidebar({
   }, [conversations]);
 
   React.useEffect(() => {
-    // Connect to socket for notifications
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-    socketRef.current = io(socketUrl);
+    if (!socket) return;
 
-    socketRef.current.on('connect', () => {
-      // Register just to receive broadcasts
-      // We don't need full registration if we only listen for 'notification' which is broadcast
-    });
-
-    socketRef.current.on('receive_message', (data: any) => {
+    const onReceiveMessage = (data: any) => {
       const currentConversationId = selectedConversationIdRef.current;
       const allConversations = conversationsRef.current;
 
       // 1. Skip if user sent it or if currently viewing this conversation
       if (data.senderId === user.id) return;
-      // The socket sends conversationId in the new payload
-      if (currentConversationId && data.conversationId === currentConversationId) {
-        return;
-      }
+      if (currentConversationId && data.conversationId === currentConversationId) return;
 
       // 2. Find sender details
-      // Use data direct from socket if available, fallback to "Someone"
-      // This decouples notification from local conversation state loaded in the sidebar
       let senderName = data.senderName || 'Someone';
       let senderAvatar = data.senderAvatar;
 
-      // Fallback: Try to find in loaded conversations if not in payload (legacy/backward compat)
       if (!data.senderName) {
         const conversation = allConversations.find(c => c.id === data.conversationId);
         if (conversation) {
@@ -216,10 +203,15 @@ export function ConversationSidebar({
         title: `New message from ${senderName}`,
         description: data.content,
       });
-    });
 
-    socketRef.current.on('notification', (notice: any) => {
-      // Deduplicate by timestamp and user ID
+      // Play sound if not muted
+      if (typeof window !== 'undefined' && !mutedUsers[data.senderId]) {
+        const audio = new Audio('/assets/notification_sound/whatsapp-sms-tone.mp3');
+        audio.play().catch(e => console.error("Sound play blocked", e));
+      }
+    };
+
+    const onNotification = (notice: any) => {
       setNotifications(prev => {
         const isDuplicate = prev.some(n =>
           n.timestamp === notice.timestamp && n.data.id === notice.data.id
@@ -231,19 +223,23 @@ export function ConversationSidebar({
           read: false
         };
         const updated = [newNotification, ...prev];
-        localStorage.setItem('bubblechat-notifications', JSON.stringify(updated.slice(0, 50))); // Keep last 50
+        localStorage.setItem('bubblechat-notifications', JSON.stringify(updated.slice(0, 50)));
         return updated;
       });
       toast({
         title: "New User Joined!",
         description: `${notice.data.name} just joined BobbleChat. Say hi!`,
       });
-    });
+    };
+
+    socket.on('receive_message', onReceiveMessage);
+    socket.on('notification', onNotification);
 
     return () => {
-      socketRef.current?.disconnect();
+      socket.off('receive_message', onReceiveMessage);
+      socket.off('notification', onNotification);
     };
-  }, []);
+  }, [socket, user.id, mutedUsers]);
 
   const markNotificationsAsRead = () => {
     setNotifications(prev => {
@@ -334,7 +330,7 @@ export function ConversationSidebar({
 
   const conversationsContent = (
     <>
-      <div className="p-4 border-b bg-white/30 dark:bg-black/10 backdrop-blur-sm sticky top-0 z-20 space-y-4">
+      <div className="p-4 border-b bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl sticky top-0 z-30 space-y-4">
         <div className="flex items-center justify-between">
           <Logo variant="rectangular" showText={false} className="h-8 w-auto" />
           <Popover onOpenChange={(open) => { if (open) markNotificationsAsRead(); }}>
@@ -604,8 +600,26 @@ export function ConversationSidebar({
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={async () => {
-                              await deleteConversation(user.id, otherParticipant.id);
-                              window.location.reload(); // Quick refresh to update state
+                              const result = await deleteConversation(user.id, otherParticipant.id);
+                              if (result.success) {
+                                // Update local state immediately
+                                setConversations(prev => prev.filter(c => c.id !== conversation.id));
+                                socket?.emit('delete_conversation', { senderId: user.id, receiverId: otherParticipant.id });
+                                toast({
+                                  title: "Conversation Deleted",
+                                  description: "Chat history has been removed successfully."
+                                });
+                                // If we're looking at this chat, go back to app root
+                                if (selectedConversationId === conversation.id) {
+                                  window.location.href = '/app';
+                                }
+                              } else {
+                                toast({
+                                  title: "Failed to delete",
+                                  description: result.message || "An unexpected error occurred.",
+                                  variant: "destructive"
+                                });
+                              }
                             }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                               Delete
                             </AlertDialogAction>

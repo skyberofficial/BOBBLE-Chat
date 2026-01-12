@@ -5,13 +5,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, SendHorizontal, Loader2, Video, Phone, MessageSquare } from 'lucide-react';
+import { ArrowLeft, SendHorizontal, Loader2, Video, Phone, MessageSquare, Menu } from 'lucide-react';
 import type { Conversation, User, Message } from '@/lib/types';
 import { MessageBubble } from './message-bubble';
 import { sendMessage, fetchConversationMessages, unsendMessage, deleteMessageForMe } from '@/lib/actions';
 import { Logo } from '../logo';
 import { supabase } from '@/lib/supabase';
 import { io, Socket } from 'socket.io-client';
+import { useChat } from './chat-context';
 import { FloatingBubbles } from '../ui/floating-bubbles';
 import { TypingIndicator } from './typing-indicator';
 import { CallOverlay } from './call-overlay';
@@ -28,13 +29,25 @@ interface MessageAreaProps {
   conversation: Conversation | undefined;
   currentUser: User;
   onBack?: () => void;
+  onMenuClick?: () => void;
 }
 
-export function MessageArea({ conversation, currentUser, onBack }: MessageAreaProps) {
+export function MessageArea({ conversation: initialConversation, currentUser, onBack, onMenuClick }: MessageAreaProps) {
   const { toast } = useToast();
+  const { conversations, setConversations, socket: contextSocket } = useChat();
   const [text, setText] = useState('');
-  // Initialize with cached messages if available for instant load
+
+  // Find the live version of this conversation from our context
+  const conversation = conversations.find(c => (c.id === initialConversation?.id) || (c.id === initialConversation?.participants.find(p => p.id !== currentUser.id)?.id)) || initialConversation;
+
+  // Sync local messages with the live conversation state from context
   const [messages, setMessages] = useState<Message[]>(conversation?.messages || []);
+
+  useEffect(() => {
+    if (conversation?.messages) {
+      setMessages(conversation.messages);
+    }
+  }, [conversation?.messages]);
   const [isSending, setIsSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   // Only show loading if we have NO messages
@@ -43,7 +56,11 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const conversationRef = useRef(conversation);
-  const socket = useRef<Socket | null>(null); // Changed to useRef
+  const socket = contextSocket; // Use socket from context
+
+  useEffect(() => {
+    conversationRef.current = conversation;
+  }, [conversation]);
 
   // WebRTC States
   const [callStatus, setCallStatus] = useState<'idle' | 'calling' | 'incoming' | 'connecting' | 'active' | 'hangup' | 'rejected'>('idle');
@@ -230,7 +247,7 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
   };
 
   const rejectCall = () => {
-    socket.current?.emit('reject-call', {
+    socket?.emit('reject-call', {
       from: currentUser.id,
       to: conversationRef.current?.id
     });
@@ -258,7 +275,7 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
     setPendingOffer(null);
 
     if (shouldEmit) {
-      socket.current?.emit('hangup', {
+      socket?.emit('hangup', {
         from: currentUser.id,
         to: conversationRef.current?.id
       });
@@ -283,7 +300,7 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
 
     setMessages(prev => [...prev, messageData]);
 
-    socket.current?.emit('send_message', {
+    socket?.emit('send_message', {
       senderId: currentUser.id,
       receiverId: conversation.id,
       content: text,
@@ -305,21 +322,9 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
     }
   }, [conversation?.messages]);
 
-  // Initialize Socket (ONLY for WebRTC signaling, ChatShell handles message syncing)
+  // Initialize signaling listeners on contextSocket
   useEffect(() => {
-    if (!socket.current) {
-      const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-      console.log('--- Socket (Signaling): Connecting to:', socketUrl);
-      socket.current = io(socketUrl, {
-        transports: ['polling', 'websocket']
-      });
-    }
-
-    const onConnect = () => {
-      console.log('--- Socket (Signaling): Connected! ID:', socket.current?.id);
-      socket.current?.emit('register', currentUser.id);
-    };
-
+    if (!socket) return;
 
     const onUserTyping = (data: { senderId: string }) => {
       if (data.senderId === conversationRef.current?.id) {
@@ -334,7 +339,7 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
     };
 
     // WebRTC Signaling Listeners
-    socket.current.on('incoming-call', (data: { from: string, offer: any, type: 'audio' | 'video' }) => {
+    socket.on('incoming-call', (data: { from: string, offer: any, type: 'audio' | 'video' }) => {
       if (data.from === conversationRef.current?.id) {
         setCallType(data.type);
         setPendingOffer(data.offer);
@@ -342,14 +347,14 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
       }
     });
 
-    socket.current.on('call-answered', async (data: { from: string, answer: any }) => {
+    socket.on('call-answered', async (data: { from: string, answer: any }) => {
       if (peerConnection.current) {
         await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
         setCallStatus('active');
       }
     });
 
-    socket.current.on('ice-candidate', async (data: { from: string, candidate: any }) => {
+    socket.on('ice-candidate', async (data: { from: string, candidate: any }) => {
       if (peerConnection.current) {
         try {
           await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
@@ -359,59 +364,31 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
       }
     });
 
-    socket.current.on('call-ended', () => {
+    socket.on('call-ended', () => {
       if (callStatusRef.current === 'incoming') {
         logCallEvent(callType === 'video' ? 'call_missed_video' : 'call_missed_voice', `Missed ${callType === 'video' ? 'video' : 'voice'} call`);
       }
-
-      const wasActive = callStatusRef.current === 'active';
       endCall(false);
-
-      if (wasActive) {
-        toast({
-          title: "Call Ended",
-          description: "The call has been terminated.",
-        });
-      }
     });
 
-    socket.current.on('call-rejected', () => {
+    socket.on('call-rejected', () => {
       setCallStatus('rejected');
-      setTimeout(() => {
-        endCall(false);
-      }, 2000);
-
-      const otherName = conversationRef.current?.participants.find(p => p.id !== currentUser.id)?.name || 'User';
-      toast({
-        title: "Call Rejected",
-        description: `${otherName} is unable to take the call right now.`,
-      });
+      setTimeout(() => setCallStatus('idle'), 2000);
     });
 
-    socket.current.on('message_deleted', (data: { messageId: string }) => {
-      setMessages(prev => prev.filter(m => m.id !== data.messageId));
-    });
-
-    if (socket.current.connected) {
-      onConnect();
-    }
-
-    socket.current.on('connect', onConnect);
-    socket.current.on('user_typing', onUserTyping);
-    socket.current.on('user_stop_typing', onUserStopTyping);
+    socket.on('user_typing', onUserTyping);
+    socket.on('user_stop_typing', onUserStopTyping);
 
     return () => {
-      socket.current?.off('connect', onConnect);
-      socket.current?.off('user_typing', onUserTyping);
-      socket.current?.off('user_stop_typing', onUserStopTyping);
-      socket.current?.off('incoming-call');
-      socket.current?.off('call-answered');
-      socket.current?.off('ice-candidate');
-      socket.current?.off('call-ended');
-      socket.current?.off('call-rejected');
-      socket.current?.off('message_deleted');
+      socket.off('incoming-call');
+      socket.off('call-answered');
+      socket.off('ice-candidate');
+      socket.off('call-ended');
+      socket.off('call-rejected');
+      socket.off('user_typing', onUserTyping);
+      socket.off('user_stop_typing', onUserStopTyping);
     };
-  }, [currentUser.id]);
+  }, [socket, conversation?.id]);
 
   // Fetch messages and handle Supabase Realtime
   useEffect(() => {
@@ -505,8 +482,8 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
     setText(e.target.value);
 
     // Emit typing event
-    if (socket.current && conversation) {
-      socket.current.emit('typing', { senderId: currentUser.id, receiverId: conversation.id });
+    if (socket && conversation) {
+      socket.emit('typing', { senderId: currentUser.id, receiverId: conversation.id });
 
       // Clear existing timeout
       if (typingTimeoutRef.current) {
@@ -515,7 +492,7 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
 
       // Set timeout to stop typing
       typingTimeoutRef.current = setTimeout(() => {
-        socket.current?.emit('stop_typing', { senderId: currentUser.id, receiverId: conversation.id });
+        socket.emit('stop_typing', { senderId: currentUser.id, receiverId: conversation.id });
       }, 1000);
     }
   };
@@ -573,15 +550,13 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
     };
     setMessages(prev => [...prev, optimisticMessage]);
 
-    // Send via socket for immediate delivery
-    // Find the other participant to send to
-    const otherParticipant = conversation.participants.find(p => p.id !== currentUser.id);
-    if (otherParticipant) {
-      socket.current?.emit('send_message', {
+    // OPTIMISTIC UPDATE: Update the global conversations list immediately 
+    if (socket) {
+      socket.emit('send_message', {
         senderId: currentUser.id,
         senderName: currentUser.name,
         senderAvatar: currentUser.avatar,
-        receiverId: otherParticipant.id, // Send to the USER, not the conversation ID
+        receiverId: otherParticipant.id,
         conversationId: conversation.id,
         content: finalContent,
         timestamp: Date.now(),
@@ -590,17 +565,31 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
       });
     }
 
+    // Update global state optimistically
+    setConversations(prev => prev.map(c => {
+      if (c.id !== conversation.id) return c;
+      return {
+        ...c,
+        messages: [...(c.messages || []), optimisticMessage],
+        lastMessage: optimisticMessage
+      };
+    }));
+
     try {
       const result = await sendMessage(conversation.id, finalContent, currentUser.id, messageType);
       if (result && !result.success) {
         throw new Error(result.error || 'Failed to persist message');
       }
 
-      // Replace the temp message with the real one from the server
+      // Replace the temp message with the real one in global state
       if (result?.message) {
-        setMessages(prev => prev.map(m =>
-          m.id === optimisticMessage.id ? result.message : m
-        ));
+        setConversations(prev => prev.map(c => {
+          if (c.id !== conversation.id) return c;
+          return {
+            ...c,
+            messages: (c.messages || []).map(m => m.id === optimisticMessage.id ? result.message : m)
+          };
+        }));
       }
     } catch (error) {
       console.error("Failed to send:", error);
@@ -611,10 +600,6 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
       });
     } finally {
       setIsSending(false);
-      // Restore focus to input
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 10);
     }
   };
 
@@ -655,8 +640,14 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
 
     const result = await unsendMessage(messageId, currentUser.id);
     if (result.success) {
-      setMessages(prev => prev.filter(m => m.id !== messageId));
-      socket.current?.emit('delete_message', { messageId, receiverId: conversation.id });
+      setConversations(prev => prev.map(c => {
+        if (c.id !== conversation.id) return c;
+        return {
+          ...c,
+          messages: (c.messages || []).filter(m => m.id !== messageId)
+        };
+      }));
+      socket?.emit('delete_message', { messageId, receiverId: conversation.id });
       toast({ title: "Message Unsent", description: "Your message has been removed for everyone." });
     } else {
       console.error('[DEBUG] unsendMessage failed:', result.message);
@@ -667,7 +658,13 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
   const handleDeleteForMe = async (messageId: string) => {
     const result = await deleteMessageForMe(messageId);
     if (result.success) {
-      setMessages(prev => prev.filter(m => m.id !== messageId));
+      setConversations(prev => prev.map(c => {
+        if (c.id !== conversation.id) return c;
+        return {
+          ...c,
+          messages: (c.messages || []).filter(m => m.id !== messageId)
+        };
+      }));
       toast({ title: "Deleted", description: "Message removed from your view." });
     } else {
       toast({ title: "Error", description: "Failed to delete message.", variant: "destructive" });
@@ -687,9 +684,14 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
     <div className="flex flex-col h-full bg-background/40 backdrop-blur-sm overflow-hidden relative">
       <FloatingBubbles />
       {/* Header */}
-      <div className="p-3 md:p-4 pl-20 md:pl-4 border-b flex items-center gap-3 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-md sticky top-0 z-10">
+      <div className="p-3 md:p-4 border-b flex items-center gap-3 bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl sticky top-0 z-40 w-full transition-all">
+        {onMenuClick && !onBack && (
+          <Button variant="ghost" size="icon" onClick={onMenuClick} className="md:hidden flex h-9 w-9 rounded-full bg-primary/5 text-primary hover:bg-primary/10">
+            <Menu className="h-5 w-5" />
+          </Button>
+        )}
         {onBack && (
-          <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
+          <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden flex h-9 w-9 rounded-full bg-primary/5 text-primary hover:bg-primary/10">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         )}
@@ -768,8 +770,8 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
         </div>
       </ScrollArea>
 
-      {/* Input */}
-      <div className="p-3 md:p-4 border-t bg-white/50 dark:bg-neutral-900/50 backdrop-blur-md sticky bottom-0">
+      {/* Input Area */}
+      <div className="p-3 md:p-4 border-t bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl sticky bottom-0 z-40 w-full">
         {imagePreview && (
           <div className="max-w-4xl mx-auto mb-3 animate-in slide-in-from-bottom-2 duration-300 relative px-4">
             <div className="relative inline-block mt-4">
@@ -880,7 +882,6 @@ export function MessageArea({ conversation, currentUser, onBack }: MessageAreaPr
             value={text}
             onChange={handleInputChange}
             ref={inputRef}
-            disabled={isSending}
           />
           <Button type="submit" size="icon" disabled={(!text.trim() && !imageBlob) || isSending} className="h-10 w-10 md:h-12 md:w-12 rounded-full shadow-lg shadow-primary/20 transition-transform active:scale-95">
             <SendHorizontal className="h-5 w-5 md:h-6 md:w-6" />

@@ -35,7 +35,7 @@ export default async function AppLayout({
   const conversations = await getConversationsForUser(user.id, authClient);
 
   return (
-    <div className="flex h-full w-full flex-col bg-background p-0 sm:p-4">
+    <div className="flex h-[100dvh] w-full flex-col bg-background p-0 sm:p-4 overflow-hidden">
       <div className="flex-1 w-full max-w-[1600px] mx-auto bg-white/40 dark:bg-black/20 rounded-none sm:rounded-3xl shadow-2xl shadow-primary/5 border border-primary/5 overflow-hidden backdrop-blur-md">
         <ChatShell user={user} conversations={conversations}>
           {children}

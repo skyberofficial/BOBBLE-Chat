@@ -1,221 +1,92 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import type { User, Conversation, Message } from '@/lib/types';
+import React from 'react';
+import { Conversation, User } from '@/lib/types';
+import { useRouter, usePathname } from 'next/navigation';
 import { ConversationSidebar } from './conversation-sidebar';
-import { cn } from '@/lib/utils';
-import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '../ui/sheet';
-import { Button } from '../ui/button';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Logo } from '../logo';
+import { ChatProvider, useChat } from './chat-context';
 
 interface ChatShellProps {
+    children: React.ReactNode;
     user: User;
     conversations: Conversation[];
-    children: React.ReactNode;
 }
 
-export function ChatShell({ user, conversations: initialConversations, children }: ChatShellProps) {
-    const params = useParams();
+function ChatShellContent({ children, user }: { children: React.ReactNode, user: User }) {
+    const { conversations } = useChat();
+    const pathname = usePathname();
     const router = useRouter();
-    const chatId = params.chatId as string | undefined;
+    const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
+    const isBaseApp = pathname === '/app';
+    const selectedConversationId = pathname.startsWith('/app/') ? pathname.split('/').pop() || null : null;
 
-    const [conversations, setConversations] = useState(initialConversations);
-    const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
-    const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
-    const isMobile = useIsMobile();
-
-    useEffect(() => {
-        setConversations(initialConversations);
-    }, [initialConversations]);
-
-    const [socket, setSocket] = useState<any>(null);
-
-    // Global Socket for Realtime Sync
-    useEffect(() => {
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
-        console.log('--- Socket: Initializing connection to:', socketUrl);
-
-        const sock = require('socket.io-client').io(socketUrl, {
-            transports: ['polling', 'websocket'],
-            reconnectionAttempts: 5,
-            timeout: 10000
-        });
-        setSocket(sock);
-
-        sock.on('connect', () => {
-            console.log('--- Socket: Connected successfully! ID:', sock.id);
-            if (user?.id) sock.emit('register', user.id);
-        });
-
-        sock.on('connect_error', (err: any) => {
-            console.error('--- Socket: Connection error:', err.message);
-        });
-
-        sock.on('receive_message', (data: any) => {
-            setConversations(prev => {
-                const convIndex = prev.findIndex(c => c.id === data.conversationId);
-                if (convIndex === -1) return prev;
-                const updatedConv = { ...prev[convIndex] };
-                const newMessage: Message = {
-                    id: data.id,
-                    senderId: data.senderId,
-                    text: data.content,
-                    timestamp: data.timestamp,
-                    type: data.type,
-                    status: 'sent'
-                };
-
-                const currentPath = window.location.pathname;
-                const isActive = currentPath.includes(data.conversationId);
-
-                if (isActive && data.senderId !== user.id) {
-                    newMessage.status = 'read';
-                }
-
-                const messages = updatedConv.messages || [];
-                if (!messages.some(m => m.id === newMessage.id)) {
-                    updatedConv.messages = [...messages, newMessage];
-                }
-                updatedConv.lastMessage = newMessage;
-                if (!isActive && data.senderId !== user.id) {
-                    updatedConv.unreadCount = (updatedConv.unreadCount || 0) + 1;
-                }
-                const newConvs = [...prev];
-                newConvs.splice(convIndex, 1);
-                return [updatedConv, ...newConvs];
-            });
-        });
-
-        sock.on('message_delivered', (data: any) => {
-            setConversations(prev => prev.map(conv => {
-                if (conv.id !== data.conversationId) return conv;
-                return {
-                    ...conv,
-                    messages: conv.messages.map(m => m.id === data.id ? { ...m, status: 'delivered' as const } : m)
-                };
-            }));
-        });
-
-        sock.on('message_read', (data: any) => {
-            setConversations(prev => prev.map(conv => {
-                if (conv.id !== data.conversationId) return conv;
-                return {
-                    ...conv,
-                    messages: conv.messages.map(m => data.messageIds.includes(m.id) ? { ...m, status: 'read' as const } : m)
-                };
-            }));
-        });
-
-        return () => {
-            sock.disconnect();
-        };
-    }, [user.id]);
-
-    // Emit read receipt when conversation becomes active
-    useEffect(() => {
-        if (!socket || !chatId) return;
-        const currentConv = conversations.find(c => c.id === chatId);
-        if (!currentConv) return;
-
-        const unreadMessagesForMe = currentConv.messages.filter(m =>
-            m.senderId !== user.id && m.status !== 'read'
-        );
-
-        if (unreadMessagesForMe.length > 0) {
-            const messageIds = unreadMessagesForMe.map(m => m.id);
-            socket.emit('mark_as_read', {
-                conversationId: chatId,
-                messageIds: messageIds,
-                readerId: user.id,
-                senderId: unreadMessagesForMe[0].senderId
-            });
-
-            // Local update to clear unread count and set status to read
-            setConversations(prev => prev.map(c => {
-                if (c.id !== chatId) return c;
-                return {
-                    ...c,
-                    unreadCount: 0,
-                    messages: c.messages.map(m =>
-                        messageIds.includes(m.id) ? { ...m, status: 'read' as const } : m
-                    )
-                };
-            }));
-        }
-    }, [chatId, conversations, socket, user.id]);
-
-    const handleSelectConversation = (conversationId: string) => {
-        router.push(`/app/${conversationId}`);
-        if (isMobile) {
-            setIsMobileSheetOpen(false);
-        }
-    };
-
-    const onConversationCreated = (newConversation: Conversation) => {
-        setConversations(prev => [newConversation, ...prev.filter(c => c.id !== newConversation.id)]);
-        router.push(`/app/${newConversation.id}`);
-    };
-
-    const sidebar = (
-        <ConversationSidebar
-            user={user}
-            conversations={conversations}
-            onSelectConversation={handleSelectConversation}
-            selectedConversationId={chatId || null}
-            onConversationCreated={onConversationCreated}
-            isCollapsed={isDesktopSidebarCollapsed && !isMobile}
-        />
-    );
+    // Reset sidebar when changing route on mobile
+    React.useEffect(() => {
+        setIsSidebarOpen(false);
+    }, [pathname]);
 
     return (
-        <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col md:flex-row text-sm bg-background/50 backdrop-blur-sm">
-            {/* Mobile Sidebar */}
-            <div className="md:hidden absolute top-4 left-4 z-30">
-                <Sheet open={isMobileSheetOpen} onOpenChange={setIsMobileSheetOpen}>
-                    <SheetTrigger asChild>
-                        <Button variant="ghost" size="icon" className="bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm shadow-sm border border-border/40">
-                            <Menu className="h-6 w-6" />
-                        </Button>
-                    </SheetTrigger>
-                    <SheetContent side="left" className="p-0 w-80 bg-white dark:bg-neutral-900 border-r">
-                        <SheetTitle className="sr-only">Conversations</SheetTitle>
-                        {sidebar}
-                    </SheetContent>
-                </Sheet>
-            </div>
+        <div className="flex h-full w-full bg-background/60 backdrop-blur-xl relative overflow-hidden">
+            {/* Background Glows */}
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
 
-            {/* Desktop Sidebar */}
-            <div className={cn(
-                "hidden md:flex flex-col border-r bg-white dark:bg-neutral-900 transition-all duration-300 ease-in-out h-full shadow-sm",
-                isDesktopSidebarCollapsed ? "w-16" : "w-80 lg:w-96"
-            )}>
-                <div className="p-3 h-[61px] border-b flex items-center justify-between">
-                    {!isDesktopSidebarCollapsed && (
-                        <div className="flex items-center gap-2">
-                            <Logo variant="rectangular" showText={false} className="justify-start h-8 origin-left" />
-                        </div>
-                    )}
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setIsDesktopSidebarCollapsed(!isDesktopSidebarCollapsed)}
-                        className={cn("hover:bg-primary/5 hover:text-primary transition-colors", isDesktopSidebarCollapsed && "mx-auto")}
-                    >
-                        {isDesktopSidebarCollapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
-                    </Button>
-                </div>
+            {/* Sidebar Container */}
+            <div className={`
+                ${isBaseApp ? 'flex' : (isSidebarOpen ? 'flex absolute inset-0 z-50' : 'hidden md:flex')} 
+                w-full md:w-[380px] lg:w-[420px] border-r border-primary/5 flex-col bg-white dark:bg-neutral-950 md:bg-white/20 md:dark:bg-black/10 backdrop-blur-md relative z-10 h-full
+            `}>
                 <div className="flex-1 overflow-hidden">
-                    {sidebar}
+                    <ConversationSidebar
+                        conversations={conversations}
+                        user={user}
+                        selectedConversationId={selectedConversationId}
+                        onSelectConversation={(id) => {
+                            router.push(`/app/${id}`);
+                            setIsSidebarOpen(false);
+                        }}
+                        onConversationCreated={(conv) => {
+                            router.push(`/app/${conv.id}`);
+                            setIsSidebarOpen(false);
+                        }}
+                        isCollapsed={false}
+                    />
                 </div>
+                {/* Mobile Close Button for Sidebar Overlay */}
+                {isSidebarOpen && !isBaseApp && (
+                    <button
+                        onClick={() => setIsSidebarOpen(false)}
+                        className="absolute top-4 right-4 z-50 p-2 rounded-full bg-primary/10 text-primary md:hidden"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                )}
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-                {children}
+            <div className={`
+                ${isBaseApp ? 'hidden md:flex' : 'flex'} 
+                flex-1 flex flex-col h-full overflow-hidden relative z-0
+            `}>
+                {React.Children.map(children, child => {
+                    if (React.isValidElement(child)) {
+                        return React.cloneElement(child as React.ReactElement<any>, {
+                            onMenuClick: () => setIsSidebarOpen(true)
+                        });
+                    }
+                    return child;
+                })}
             </div>
         </div>
+    );
+}
+
+export function ChatShell({ children, user, conversations: initialConversations }: ChatShellProps) {
+    return (
+        <ChatProvider initialConversations={initialConversations} user={user}>
+            <ChatShellContent user={user}>
+                {children}
+            </ChatShellContent>
+        </ChatProvider>
     );
 }

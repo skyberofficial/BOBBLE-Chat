@@ -374,17 +374,18 @@ function getStoragePathFromUrl(url: string) {
 
 export async function deleteConversation(userId: string, otherUserId: string) {
   try {
+    console.log(`--- Delete Conversation Started: ${userId} <-> ${otherUserId} ---`);
     const cookieStore = await cookies();
     const token = cookieStore.get('sb-access-token')?.value;
 
     const { createClient } = require('@supabase/supabase-js');
     const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://oaldnmqostzgmqtyeprp.supabase.co',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_WNtJxaQRsc7c5UckV6HhCQ_hzqGWJS4',
       {
         global: {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: token ? `Bearer ${token}` : '',
           },
         },
       }
@@ -396,7 +397,12 @@ export async function deleteConversation(userId: string, otherUserId: string) {
       .select('content, type')
       .or(`and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`);
 
-    if (fetchError) throw fetchError;
+    if (fetchError) {
+      console.error('Fetch error during delete:', fetchError);
+      throw fetchError;
+    }
+
+    console.log(`Found ${messages?.length || 0} messages to delete.`);
 
     // 2. Identify and delete image files from storage
     const imagePaths = (messages || [])
@@ -405,7 +411,8 @@ export async function deleteConversation(userId: string, otherUserId: string) {
       .filter(Boolean) as string[];
 
     if (imagePaths.length > 0) {
-      const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'image-bucket';
+      console.log(`Deleting ${imagePaths.length} images from storage...`);
+      const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'chat-media';
       await authClient.storage.from(bucket).remove(imagePaths);
     }
 
@@ -415,9 +422,13 @@ export async function deleteConversation(userId: string, otherUserId: string) {
       .delete()
       .or(`and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`);
 
-    if (deleteError) throw deleteError;
+    if (deleteError) {
+      console.error('Delete error from DB:', deleteError);
+      throw deleteError;
+    }
 
-    revalidatePath('/app');
+    console.log('--- Delete Conversation Success ---');
+    revalidatePath('/app', 'layout');
     return { success: true };
   } catch (error: any) {
     console.error('Failed to delete conversation:', error);
