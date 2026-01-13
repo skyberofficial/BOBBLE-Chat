@@ -9,16 +9,16 @@ This document outlines the steps to deploy **both** the Frontend (Next.js) and t
 Create a [`.env.local`](file:///c:/Users/ajays/OneDrive/Desktop/BubbleChat/.env.local) file in the root directory (`/var/www/bubblechat/.env.local`):
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://oaldnmqostzgmqtyeprp.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_WNtJxaQRsc7c5UckV6HhCQ_hzqGWJS4
-NEXT_PUBLIC_SOCKET_URL=https://bobblechat.skyber.dev
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_SOCKET_URL=
 
 # Storage S3 Credentials (S3-compatible API)
-SUPABASE_STORAGE_ENDPOINT=https://oaldnmqostzgmqtyeprp.storage.supabase.co/storage/v1/s3
-SUPABASE_STORAGE_REGION=ap-south-1
-SUPABASE_STORAGE_ACCESS_KEY_ID=c9c2d7e7d438e93bbb3af2e9bd0830f9
-SUPABASE_STORAGE_SECRET_ACCESS_KEY=c19cc3a1c306558c62ee7cbe88f7f02e59f6e297d647f35ca7e472e6bf3ebdd9
-SUPABASE_STORAGE_BUCKET=image-bucket
+SUPABASE_STORAGE_ENDPOINT=
+SUPABASE_STORAGE_REGION=
+SUPABASE_STORAGE_ACCESS_KEY_ID=
+SUPABASE_STORAGE_SECRET_ACCESS_KEY=
+SUPABASE_STORAGE_BUCKET=
 ```
 
 ---
